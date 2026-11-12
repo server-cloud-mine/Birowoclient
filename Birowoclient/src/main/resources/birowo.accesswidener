@@ -1,0 +1,10 @@
+accessWidener	v2	named
+
+# The client builds its own render layer for lines that ignore the depth of the world.
+# RenderLayer.of is the only way to build one, and it is not public.
+accessible	method	net/minecraft/client/render/RenderLayer	of	(Ljava/lang/String;Lnet/minecraft/client/render/RenderSetup;)Lnet/minecraft/client/render/RenderLayer;
+
+# The free camera puts the camera somewhere else. The place and the direction of the camera are
+# protected, so that the game alone may move it.
+accessible	method	net/minecraft/client/render/Camera	setPos	(DDD)V
+accessible	method	net/minecraft/client/render/Camera	setRotation	(FF)V

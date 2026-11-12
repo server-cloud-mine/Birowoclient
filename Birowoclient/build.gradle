@@ -1,0 +1,172 @@
+plugins {
+	// Loom 1.12.x is the line FabricMC's own Yarn 1.21.11 build pins (1.12.0-alpha.39);
+	// 1.12.7 is the patched release of that same line.
+	id 'fabric-loom' version '1.15.5'
+	id 'maven-publish'
+}
+
+version = project.mod_version
+group = project.maven_group
+
+loom {
+	// The mixin annotation processor writes the mapping of the mixin targets into a refmap,
+	// which is what lets the mixins find their targets in the obfuscated game.
+	mixin {
+		defaultRefmapName = "${project.archives_base_name}-refmap.json"
+		useLegacyMixinAp = true
+	}
+
+	accessWidenerPath = file("src/main/resources/birowo.accesswidener")
+}
+
+base {
+	archivesName = project.archives_base_name
+}
+
+repositories {
+	mavenCentral()
+	maven {
+		name = 'Fabric'
+		url = 'https://maven.fabricmc.net/'
+	}
+}
+
+dependencies {
+	minecraft "com.mojang:minecraft:${project.minecraft_version}"
+	mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+
+	modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+
+	// The tests cover the parts of the client that do not need the game: the arithmetic of the
+	// aim, the event bus, the configuration and the lifecycle of the modules.
+	testImplementation platform('org.junit:junit-bom:5.10.2')
+	testImplementation 'org.junit.jupiter:junit-jupiter'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+// Captured at configuration time: the configuration cache forbids touching `project` from a
+// closure that runs during execution.
+def modVersion = project.version
+
+processResources {
+	inputs.property 'version', modVersion
+
+	filesMatching('fabric.mod.json') {
+		expand 'version': modVersion
+	}
+}
+
+// The sound of the introduction is kept as the mp3 file it was given in, because that is the
+// form it was handed over in. The game only plays ogg files, so the file is converted while the
+// mod is built. The conversion needs ffmpeg; when ffmpeg is not there the build carries on
+// without the sound and says what is missing.
+def introSoundFile = file('intro.mp3')
+def readySoundFile = file('src/main/resources/assets/birowo/sounds/intro.ogg')
+def generatedSounds = layout.buildDirectory.dir('generated/sounds')
+
+/**
+ * @return the place ffmpeg is at, or null when it is not installed
+ */
+def findFfmpeg() {
+	def path = System.getenv('PATH')
+
+	if (path == null) {
+		return null
+	}
+
+	for (def directory : path.split(File.pathSeparator)) {
+		def candidate = new File(directory, 'ffmpeg')
+
+		if (candidate.isFile() && candidate.canExecute()) {
+			return candidate.absolutePath
+		}
+	}
+
+	return null
+}
+
+// The place of ffmpeg is looked for while the build is set up, so that the task itself does not
+// have to look for it.
+def ffmpegPath = findFfmpeg()
+
+tasks.register('convertIntroSound') {
+	inputs.file(introSoundFile).optional()
+	outputs.dir(generatedSounds)
+
+	doLast {
+		def target = new File(generatedSounds.get().asFile, 'assets/birowo/sounds/intro.ogg')
+		def ready = readySoundFile
+
+		if (ready.exists()) {
+			// The sound has already been made by hand and lies among the resources, so it is
+			// simply taken over.
+			target.parentFile.mkdirs()
+			ready.copyTo(target, true)
+			logger.lifecycle('The sound of the introduction was taken over from the resources.')
+			return
+		}
+
+		if (!introSoundFile.exists()) {
+			logger.lifecycle('There is no intro.mp3, so the client starts without a sound.')
+			return
+		}
+
+		def ffmpeg = ffmpegPath
+
+		if (ffmpeg == null) {
+			logger.warn('ffmpeg was not found, so the sound of the introduction is left out. ' +
+					'Install ffmpeg and build again, or make the file yourself with: ' +
+					'ffmpeg -i intro.mp3 -c:a libvorbis -q:a 4 ' +
+					'src/main/resources/assets/birowo/sounds/intro.ogg')
+			return
+		}
+
+		target.parentFile.mkdirs()
+
+		def process = new ProcessBuilder([ffmpeg, '-y', '-loglevel', 'error',
+				'-i', introSoundFile.absolutePath,
+				'-c:a', 'libvorbis', '-q:a', '4',
+				target.absolutePath]).redirectErrorStream(true).start()
+
+		def output = process.inputStream.text
+		process.waitFor()
+
+		if (process.exitValue() != 0) {
+			logger.warn('The sound of the introduction could not be made: ' + output)
+			return
+		}
+
+		logger.lifecycle('The sound of the introduction was made.')
+	}
+}
+
+tasks.named('processResources') {
+	dependsOn 'convertIntroSound'
+
+	// The sound that was made is put among the other resources of the mod.
+	from(generatedSounds)
+}
+
+java {
+	// Minecraft 1.21.11 targets Java 21. The toolchain is provisioned automatically
+	// via the foojay resolver declared in settings.gradle.
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(21)
+	}
+
+	withSourcesJar()
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.encoding = 'UTF-8'
+	it.options.release = 21
+	it.options.compilerArgs << '-Xlint:deprecation'
+}
+
+tasks.named('test') {
+	useJUnitPlatform()
+	testLogging {
+		events 'passed', 'skipped', 'failed'
+	}
+}

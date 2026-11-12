@@ -1,0 +1,32 @@
+# The Gradle build
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# The Yarn mappings that Fabric Loom downloads
+yarn-*.zip
+yarn-*/
+
+# The project directory of the IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.classpath
+.project
+bin/
+
+# The logs of the game and of the client
+logs/
+*.log
+*.log.gz
+
+# The operating system
+.DS_Store
+Thumbs.db
+
+# The configuration the client writes at runtime
+config/birowo.json
+config/birowo_gui.json
